@@ -37,7 +37,7 @@ def get_proxy(blacklist: list, is_https: bool = True) -> str:
 
 def retry_get_proxy(blacklist: list, attempt: int = 1) -> str:
     print("Retry to get proxy!")
-    max_attempt = 10
+    max_attempt = 1000000000000000000000
     if attempt <= max_attempt:
         try:
             proxy = FreeProxy(country_id=['US', 'DE'], https=True).get()

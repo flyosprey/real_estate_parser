@@ -6,6 +6,8 @@ dropin.cache
 docs/build
 *egg-info
 .tox
+*.json
+*.log
 venv
 build
 dist

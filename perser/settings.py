@@ -98,3 +98,14 @@ DUPEFILTER_DEBUG = True
 # LOG_LEVEL = 'DEBUG'
 # LOG_FILE = 'scrapy.log'
 # LOG_FORMAT = '%(asctime)s [%(name)s] %(levelname)s: %(message)s'
+
+SPLASH_URL = 'http://localhost:8050/'  # Replace with your Splash server URL
+DOWNLOADER_MIDDLEWARES = {
+    'scrapy_splash.SplashCookiesMiddleware': 723,
+    'scrapy_splash.SplashMiddleware': 725,
+    'scrapy.downloadermiddlewares.httpcompression.HttpCompressionMiddleware': 810,
+}
+SPIDER_MIDDLEWARES = {
+    'scrapy_splash.SplashDeduplicateArgsMiddleware': 100,
+}
+# DUPEFILTER_CLASS = 'scrapy_splash.SplashAwareDupeFilter'

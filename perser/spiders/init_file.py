@@ -18,8 +18,7 @@ def _get_required_params() -> dict:
 
 
 class HeadersBehavior:
-    def get_callback_headers(self) -> dict:
-        base_headers = self.get_base_headers()
+    def get_callback_headers(self, base_headers: dict) -> dict:
         callback_headers = {
             'Content-Type': 'application/x-www-form-urlencoded',
             'Origin': 'https://cdplusmobile.marioncountyfl.org',
