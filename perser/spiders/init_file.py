@@ -1,35 +1,29 @@
 import json
-from json.decoder import JSONDecodeError
-
-from perser import utils
-
-REQUIRED_PARAMS_FILE_PATH = "yelp_crawler/spiders/required_params.json"
+from pathlib import Path
 
 
-def _get_required_params() -> dict:
-    try:
-        with open(REQUIRED_PARAMS_FILE_PATH, "r") as file:
-            required_params = json.load(file)
-            return required_params
-    except FileNotFoundError:
-        raise FileNotFoundError("ERROR: Need to create required_params.json file!")
-    except JSONDecodeError:
-        raise ValueError("ERROR: Wrong JSON syntax in required_params.json!")
+__root = Path(__file__).parent
+
+with open(__root / "permit_numbers.json", 'r') as file:
+    PermitNumbers = json.loads(file.read())["permit_numbers"]
+
+with open(__root / "lua_script.lua", 'r') as file:
+    LuaScript = file.read()
 
 
 class HeadersBehavior:
-    def get_callback_headers(self, base_headers: dict) -> dict:
+    def get_callback_headers(self) -> dict:
+        general_headers = self.get_base_headers()
         callback_headers = {
             'Content-Type': 'application/x-www-form-urlencoded',
             'Origin': 'https://cdplusmobile.marioncountyfl.org',
-            **base_headers
+            **general_headers
         }
 
         return callback_headers
 
     @staticmethod
     def get_base_headers() -> dict:
-        user_agent, chrome_version = utils.get_random_user_agent()
         headers = {
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,'
                       '*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
@@ -40,10 +34,6 @@ class HeadersBehavior:
             'Sec-Fetch-Site': 'same-origin',
             'Sec-Fetch-User': '?1',
             'Upgrade-Insecure-Requests': '1',
-            # 'User-Agent': user_agent,
-            'User-Agent': "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
-            # 'sec-ch-ua': f'"Not.A/Brand";v="8", "Chromium";v="{chrome_version}", "Google Chrome";v="{chrome_version}"',
-            'sec-ch-ua': f'"Not.A/Brand";v="8", "Chromium";v="114", "Google Chrome";v="114"',
             'sec-ch-ua-mobile': '?0',
             'sec-ch-ua-platform': '"Windows"'
         }
