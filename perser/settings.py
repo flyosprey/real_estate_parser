@@ -20,7 +20,7 @@ NEWSPIDER_MODULE = "perser.spiders"
 # ROBOTSTXT_OBEY = True
 
 # Configure maximum concurrent requests performed by Scrapy (default: 16)
-#CONCURRENT_REQUESTS = 32
+# CONCURRENT_REQUESTS = 16
 
 # Configure a delay for requests for the same website (default: 0)
 # See https://docs.scrapy.org/en/latest/topics/settings.html#download-delay
@@ -93,9 +93,9 @@ TWISTED_REACTOR = "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
 FEED_EXPORT_ENCODING = "utf-8"
 
 # DOWNLOAD_TIMEOUT = 10
-DUPEFILTER_DEBUG = True
+# DUPEFILTER_DEBUG = True
 # LOG_ENABLED = True
-# LOG_LEVEL = 'DEBUG'
+# LOG_LEVEL = 'INFO'
 # LOG_FILE = 'scrapy.log'
 # LOG_FORMAT = '%(asctime)s [%(name)s] %(levelname)s: %(message)s'
 

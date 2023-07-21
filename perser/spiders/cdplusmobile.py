@@ -4,7 +4,7 @@ import scrapy
 from scrapy.cmdline import execute
 from scrapy_splash import SplashRequest
 
-from perser.spiders.init_file import PermitNumbers, LuaScript, HeadersBehavior
+from perser.spiders.init_file import SpiderRequirements, LuaScript, HeadersBehavior
 from perser.spiders.paginator import Pagination
 from perser import utils
 
@@ -14,35 +14,32 @@ class CdplusmobileSpider(scrapy.Spider):
     allowed_domains = ["cdplusmobile.marioncountyfl.org"]
     start_url = "https://cdplusmobile.marioncountyfl.org/pdswebservices/PROD/webpermitnew/webpermits.dll"
 
-    blacklisted_proxy = ["77.247.108.17:33080", "157.245.27.9:3128", "88.99.234.110:2021", "8.209.114.72:3129"]
-
     def __init__(self, *args, **kwargs):
         self.Paginator = Pagination()
         self.HeadersBehavior = HeadersBehavior()
-        self.Permits = PermitNumbers
+        self.Permits = SpiderRequirements["permit_numbers"]
 
-        self._proxy = utils.get_proxy(blacklist=self.blacklisted_proxy, is_https=True)
-
-        self._previous_page_callback, self._previous_page = "", ""
-
-        self._visited_button_pages, self._processed_permits = set(), set()
-        self._data, self._visited_pages = {}, {}
-        self._button_pages_to_visit = []
-        self._duple_page = 0
+        self._proxy = SpiderRequirements["proxy"] or utils.get_proxy(is_https=True)
+        self._main_page = ""
+        self._data = {}
+        self._processed_permits = set()
 
         super().__init__(*args, **kwargs)
 
     def start_requests(self):
-        permit_number = str(self.Permits.pop(0))
-        general_headers = self.HeadersBehavior.get_base_headers()
-        callback_headers = self.HeadersBehavior.get_callback_headers()
+        for permit_number in self.Permits:
+            self.logger.info(msg=f"[{permit_number}] Start")
+            permit_number = str(permit_number)
+            general_headers = self.HeadersBehavior.get_base_headers()
+            callback_headers = self.HeadersBehavior.get_callback_headers(base_headers=general_headers)
 
-        splash_args = {'lua_source': LuaScript, 'wait': 15, 'proxy': self._proxy, 'url': self.start_url}
-        data = {"permit_number": permit_number, "callback_headers": callback_headers,
-                "general_headers": general_headers}
+            splash_args = {'lua_source': LuaScript,
+                           'wait': 15, 'url': self.start_url, "headers": general_headers, 'proxy': self._proxy}
+            data = {"permit_number": permit_number, "callback_headers": callback_headers,
+                    "general_headers": general_headers}
 
-        yield SplashRequest(url=self.start_url, callback=self.parse, method="GET", args=splash_args,
-                            splash_headers=general_headers, cb_kwargs={"data": data})
+            yield SplashRequest(url=self.start_url, callback=self.parse, method="GET", args=splash_args, dont_filter=True,
+                                splash_headers=general_headers, cb_kwargs={"data": data}, endpoint="execute")
 
     def parse(self, response, **kwargs):
         selector = scrapy.Selector(text=response.text)
@@ -50,6 +47,9 @@ class CdplusmobileSpider(scrapy.Spider):
         session_id = selector.xpath(".//input[@name='IW_SessionID_']//@value").get()
         track_id = selector.xpath(".//input[@name='IW_TrackID_']//@value").get()
         window_id = selector.xpath(".//input[@name='IW_WindowID_']//@value").get()
+
+        if not session_id or not track_id:
+            raise Exception("Cannot extract session_id or track_id")
 
         data_for_request = {
             "session_id": session_id, "track_id": track_id, "proxy": self._proxy,
@@ -73,16 +73,17 @@ class CdplusmobileSpider(scrapy.Spider):
         html = utils.normalize_html(html=response.text)
         selector = scrapy.Selector(text=html)
         form_data = self.get_form_data(selector=selector, action="PERMIT")
-        self._previous_page_callback = selector.xpath(".//input[@title='Go Back']//@name").get()
-        if not self._previous_page_callback:
+        previous_page_callback = selector.xpath(".//input[@title='Go Back']//@name").get()
+        if not previous_page_callback:
             raise Exception("Failed to extract _previous_page_callback")
 
         permit_number = response.meta["data"]["permit_number"]
-        self._data[permit_number], self._visited_pages[permit_number] = {}, set()
+        self._data[permit_number] = {}
 
         data_for_request = {
-            "form_data": form_data, "meta_data": response.meta["data"], "callback": self.site_callback,
-            "proxy": self._proxy, "callback_func": self.search_by_permit_login
+            "form_data": form_data, "callback": self.site_callback,
+            "proxy": self._proxy, "callback_func": self.search_by_permit_login,
+            "meta_data": {**response.meta["data"], "previous_page_callback": previous_page_callback}
         }
 
         yield self.Paginator.get_request(data=data_for_request, request_type="search_by_permit_login")
@@ -100,7 +101,7 @@ class CdplusmobileSpider(scrapy.Spider):
 
     def permit_details(self, response):
         permit_number = response.meta["data"]["permit_number"]
-        self.logger.info(msg=f"Passed login for {permit_number}")
+        self.logger.info(msg=f"[{permit_number}] Passed login")
         html = utils.normalize_html(html=response.text)
         selector = scrapy.Selector(text=html)
 
@@ -108,73 +109,67 @@ class CdplusmobileSpider(scrapy.Spider):
         for _id in range(1, len(selector.xpath(".//span[contains(@id, 'IWLABEL')]")) + 1):
             self._data[permit_number]["permit_details"].update(self.get_detail_info(selector=selector, id_value=_id))
 
-        self._button_pages_to_visit = selector.xpath(".//div[@id='RGNBUTTON']//input/@value").getall()
+        button_pages_to_visit = selector.xpath(".//div[@id='RGNBUTTON']//input/@value").getall()
         self._main_page = selector.xpath(".//span[@id='LBLPAGEID']//text()").get()
 
         action = selector.xpath(".//div[@id='RGNBUTTON']//input/@value").get()
         form_data = self.get_form_data(selector=selector, action=action)
 
         data_for_request = {
-            "form_data": form_data, "meta_data": response.meta["data"], "callback": self.site_callback,
-            "proxy": self._proxy, "callback_func": self.collect_page
+            "form_data": form_data, "callback": self.site_callback,
+            "proxy": self._proxy, "callback_func": self.collect_page,
+            "meta_data": {**response.meta["data"], "button_pages_to_visit": button_pages_to_visit,
+                          "visited_pages": set(), "duple_page": 0, "previous_page": "", "visited_button_pages": set()}
         }
-        self.logger.info(msg="Extracted: Permit Details")
+        self.logger.info(msg=f"[{response.meta['data']['permit_number']}] Extracted: Permit Details")
         yield self.Paginator.get_request(data=data_for_request, request_type="collect_page")
 
     def collect_page(self, response):
+        meta_data = response.meta["data"]
         html = utils.normalize_html(html=response.text)
         selector = scrapy.Selector(text=html)
         current_page = selector.xpath(".//span[@id='LBLPAGEID']//text()").get()
-        self.logger.info(msg=f"Visit: '{current_page}'")
+        self.logger.info(msg=f"[{meta_data['permit_number']}] Visit: '{current_page}'")
 
-        self._duple_page = self._duple_page + 1 if current_page == self._previous_page else 0
-        permit_number = response.meta["data"]["permit_number"]
+        meta_data["duple_page"] = meta_data["duple_page"] + 1 if current_page == meta_data["previous_page"] else 0
 
-        button_pages = self.get_button_pages(selector=selector, current_page=current_page)
-        action = self._previous_page_callback
-        if self._main_page == current_page or (current_page not in self._visited_pages[permit_number] and button_pages):
-            self._button_pages_to_visit += [
-                button_pages for button_page in button_pages if button_page not in self._visited_button_pages
-            ]
-            action = self._button_pages_to_visit[-1] if self._button_pages_to_visit else action
-        elif self._duple_page == 0 and not selector.xpath(".//input[contains(@id, 'GUESTLOGIN')]"):
-            key_name = utils.normalize_key(key=current_page)
-            self._data[permit_number][key_name] = self.get_page_data(selector=selector)
-            self.logger.info(msg=f"Extracted data: '{current_page}'")
+        if not meta_data["button_pages_to_visit"] and meta_data['permit_number'] not in self._processed_permits:
+            self._processed_permits.add(meta_data['permit_number'])
+            yield {meta_data['permit_number']: self._data[meta_data['permit_number']]}
+        else:
 
-        form_data = self.get_form_data(selector=selector, action=action)
+            button_pages = self.get_button_pages(selector=selector, current_page=current_page)
+            action = meta_data["previous_page_callback"]
+            if self._main_page == current_page or (current_page not in meta_data["visited_pages"] and button_pages):
+                meta_data["button_pages_to_visit"] += [
+                    button_page for button_page in button_pages if button_page not in meta_data["visited_button_pages"]
+                ]
+                if meta_data["button_pages_to_visit"]:
+                    action = meta_data["button_pages_to_visit"].pop(-1)
+            elif meta_data["duple_page"] == 0 and not selector.xpath(".//input[contains(@id, 'GUESTLOGIN')]"):
+                key_name = utils.normalize_key(key=current_page)
+                self._data[meta_data['permit_number']][key_name] = self.get_page_data(selector=selector)
+                self.logger.info(msg=f"[{meta_data['permit_number']}] Extracted data: '{current_page}'")
 
-        if not self._button_pages_to_visit and permit_number not in self._processed_permits:
-            self._processed_permits.add(permit_number)
-            if len(self._processed_permits) == 2:
-                yield self._data
-            elif self.Permits:
-                response.meta["data"]["permit_number"] = self.Permits.pop(0)
+            meta_data["previous_page"] = current_page
+            meta_data["visited_pages"].add(current_page)
+            meta_data["visited_button_pages"].add(action)
+
+            form_data = self.get_form_data(selector=selector, action=action)
+            if meta_data["duple_page"] >= 3:
+                meta_data["duple_page"] = 0
                 data_for_request = {
-                    "form_data": form_data, "meta_data": response.meta["data"], "callback": self.site_callback,
-                    "proxy": self._proxy, "callback_func": self.permit_details, "html": html
+                    "form_data": form_data, "meta_data": response.meta["data"], "callback": self.collect_page,
+                    "proxy": self._proxy, "action": action, "html": html
                 }
 
-                yield self.Paginator.get_request(data=data_for_request, request_type="search_by_permit_login")
-
-        self._previous_page = current_page
-        self._visited_pages[permit_number].add(current_page)
-        del self._button_pages_to_visit[-1]
-
-        form_data = self.get_form_data(selector=selector, action=action)
-        if self._duple_page >= 3:
-            data_for_request = {
-                "form_data": form_data, "meta_data": response.meta["data"], "callback": self.collect_page,
-                "proxy": self._proxy, "action": action, "html": html
-            }
-
-            yield self.Paginator.get_request(data=data_for_request, request_type="previous_page")
-        else:
-            data_for_request = {
-                "form_data": form_data, "meta_data": response.meta["data"], "callback": self.site_callback,
-                "proxy": self._proxy, "callback_func": self.collect_page
-            }
-            yield self.Paginator.get_request(data=data_for_request, request_type="callback")
+                yield self.Paginator.get_request(data=data_for_request, request_type="previous_page")
+            else:
+                data_for_request = {
+                    "form_data": form_data, "meta_data": response.meta["data"], "callback": self.site_callback,
+                    "proxy": self._proxy, "callback_func": self.collect_page
+                }
+                yield self.Paginator.get_request(data=data_for_request, request_type="callback")
 
     def get_button_pages(self, selector: scrapy.Selector, current_page: str) -> list:
         button_pages = []

@@ -60,7 +60,7 @@ class Pagination:
         meta_data, form_data, html = data["meta_data"], data["form_data"], data["html"]
 
         msgdlgok = re.search(r"var MSGDLGOKIsVisible = (.+?);", html)
-        cogrid = re.search(r"FindElem\('COGRID'\)\.value=\"(.+?)\"", html)[1]
+        cogrid = re.search(r"FindElem\('COGRID'\)\.value=\"(.+?)\"", html)
         if not msgdlgok or not cogrid:
             raise Exception("Cannot extract msgdlgok or cogrid | Second type of request for 'BACK' button")
 
